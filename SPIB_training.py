@@ -91,7 +91,7 @@ def calculate_loss(IB, data_inputs, data_targets, data_weights, beta=1.0):
 # Train and test model
 # ------------------------------------------------------------------------------
 
-def sample_minibatch(past_data, data_labels, data_weights, indices, device):
+def sample_minibatch(past_data, future_data, data_labels, data_weights, indices, device):
     sample_past_data = past_data[indices].to(device)
     sample_data_labels = data_labels[indices].to(device)
     
@@ -145,7 +145,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
             
             train_indices = train_permutation[i:i+batch_size]
             
-            batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_data_labels, \
+            batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                        train_data_weights, train_indices, device)
                     
             loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, \
@@ -162,7 +162,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
             if step % 500 == 0:
                 with torch.no_grad():
                     
-                    batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_data_labels, \
+                    batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                                train_data_weights, train_indices, device)
                             
                     loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, \
@@ -183,7 +183,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                     
                     test_indices = test_permutation[j:j+batch_size]
                     
-                    batch_inputs, batch_outputs, batch_weights = sample_minibatch(test_past_data, test_data_labels, \
+                    batch_inputs, batch_outputs, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, \
                                                                                test_data_weights, test_indices, device)
                     
                     loss, reconstruction_error, kl_loss = calculate_loss(IB, batch_inputs, \
@@ -314,7 +314,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         loss, reconstruction_error, kl_loss= [0 for i in range(3)]
         
         for i in range(0, len(train_past_data), batch_size):
-            batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_data_labels, train_data_weights, \
+            batch_inputs, batch_outputs, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_outputs, \
                                                                     batch_weights, beta)
@@ -342,7 +342,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         loss, reconstruction_error, kl_loss = [0 for i in range(3)]
         
         for i in range(0, len(test_past_data), batch_size):
-            batch_inputs, batch_outputs, batch_weights = sample_minibatch(test_past_data, test_data_labels, test_data_weights, \
+            batch_inputs, batch_outputs, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, test_data_weights, \
                                                                                          range(i,min(i+batch_size,len(test_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_outputs, \
                                                                    batch_weights, beta)
