@@ -57,7 +57,7 @@ def data_init(t0, dt, traj_data, traj_label, traj_weights):
 # Loss function
 # ------------------------------------------------------------------------------
 
-def calculate_loss(IB, data_inputs, data_targets, data_weights, beta=1.0):
+def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, beta=1.0):
     
     # pass through VAE
     outputs, z_sample, z_mean, z_logvar = IB.forward(data_inputs)
@@ -150,7 +150,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                        train_data_weights, train_indices, device)
                     
-            loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, \
+            loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data, \
                                                                 batch_future_labels, batch_weights, beta)
             
             # Stop if NaN is obtained
@@ -167,7 +167,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                     batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                                train_data_weights, train_indices, device)
                             
-                    loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, \
+                    loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data,\
                                                                         batch_future_labels, batch_weights, beta)
                     train_time = time.time() - start
             
@@ -188,7 +188,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                     batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, \
                                                                                test_data_weights, test_indices, device)
                     
-                    loss, reconstruction_error, kl_loss = calculate_loss(IB, batch_inputs, \
+                    loss, reconstruction_error, kl_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
                                                                          batch_future_labels, batch_weights, beta)
 
                     train_time = time.time() - start
@@ -318,7 +318,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         for i in range(0, len(train_past_data), batch_size):
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
-            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_labels, \
+            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
                                                                     batch_weights, beta)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
@@ -346,7 +346,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         for i in range(0, len(test_past_data), batch_size):
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, test_data_weights, \
                                                                                          range(i,min(i+batch_size,len(test_past_data))), IB.device)
-            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_labels, \
+            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
                                                                    batch_weights, beta)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
