@@ -57,7 +57,7 @@ def data_init(t0, dt, traj_data, traj_label, traj_weights):
 # Loss function
 # ------------------------------------------------------------------------------
 
-def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, beta=1.0):
+def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, beta=1.0, beta1 = 1.0):
     
     # pass through VAE
     outputs, z_sample, z_mean, z_logvar = IB.forward(data_inputs)
@@ -106,7 +106,7 @@ def sample_minibatch(past_data, future_data, data_labels, data_weights, indices,
     return sample_past_data, sample_future_data, sample_data_labels, sample_data_weights
 
 
-def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, train_data_weights, \
+def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_labels, train_data_weights, \
           test_past_data, test_future_data, init_test_data_labels, test_data_weights, \
               learning_rate, lr_scheduler_step_size, lr_scheduler_gamma, batch_size, threshold, patience, refinements, output_path, log_interval, device, index):
     IB.train()
@@ -151,7 +151,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                                                                        train_data_weights, train_indices, device)
                     
             loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data, \
-                                                                batch_future_labels, batch_weights, beta)
+                                                                batch_future_labels, batch_weights, beta, beta1)
             
             # Stop if NaN is obtained
             if(torch.isnan(loss).any()):
@@ -168,7 +168,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                                                                                train_data_weights, train_indices, device)
                             
                     loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data,\
-                                                                        batch_future_labels, batch_weights, beta)
+                                                                        batch_future_labels, batch_weights, beta, beta1)
                     train_time = time.time() - start
             
                     print(
@@ -189,7 +189,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
                                                                                test_data_weights, test_indices, device)
                     
                     loss, reconstruction_error, kl_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
-                                                                         batch_future_labels, batch_weights, beta)
+                                                                         batch_future_labels, batch_weights, beta, beta1)
 
                     train_time = time.time() - start
                     print(
@@ -299,7 +299,7 @@ def train(IB, beta, train_past_data, train_future_data, init_train_data_labels, 
 @torch.no_grad()
 def output_final_result(IB, device, train_past_data, train_future_data, train_data_labels, train_data_weights, \
                         test_past_data, test_future_data, test_data_labels, test_data_weights, batch_size, output_path, \
-                            path, dt, beta, learning_rate, index=0):
+                            path, dt, beta, beta1, learning_rate, index=0):
     
     with torch.no_grad():
         final_result_path = output_path + '_final_result' + str(index) + '.npy'
@@ -319,7 +319,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
-                                                                    batch_weights, beta)
+                                                                    batch_weights, beta, beta1)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
@@ -347,7 +347,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, test_data_weights, \
                                                                                          range(i,min(i+batch_size,len(test_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
-                                                                   batch_weights, beta)
+                                                                   batch_weights, beta, beta1)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
@@ -368,10 +368,10 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
             "Reconstruction loss (test) %f"
             % (loss, kl_loss, reconstruction_error), file=open(path, 'a'))
         
-        print("dt: %d\t Beta: %f\t Learning_rate: %f" % (
-            dt, beta, learning_rate))
-        print("dt: %d\t Beta: %f\t Learning_rate: %f" % (
-            dt, beta, learning_rate),
+        print("dt: %d\t Beta: %d\t Beta1: %f\t Learning_rate: %f" % (
+            dt, beta, beta1, learning_rate))
+        print("dt: %d\t Beta: %d\t Beta1: %f\t Learning_rate: %f" % (
+            dt, beta, beta1, learning_rate),
               file=open(path, 'a'))    
         
         

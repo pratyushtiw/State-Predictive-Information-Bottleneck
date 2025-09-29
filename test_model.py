@@ -101,6 +101,12 @@ def test_model():
         beta = float(sys.argv[sys.argv.index('-b') + 1])
     else:
         beta = 1e-3
+
+    # Hyper-parameter beta1
+    if '-b1' in sys.argv:
+        beta1 = float(sys.argv[sys.argv.index('-b1') + 1])
+    else:
+        beta1 = 0.00    
     
     # Import data
     
@@ -182,7 +188,7 @@ def test_model():
 
     train_result = False
 
-    train_result = SPIB_training.train(IB, beta, train_past_data, train_future_data, \
+    train_result = SPIB_training.train(IB, beta, beta1, train_past_data, train_future_data, \
                                        train_data_labels, train_data_weights, test_past_data, test_future_data, \
                                            test_data_labels, test_data_weights, learning_rate, lr_scheduler_step_size, lr_scheduler_gamma,\
                                                batch_size, threshold, patience, refinements, output_path, \
@@ -193,7 +199,7 @@ def test_model():
     
     SPIB_training.output_final_result(IB, device, train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                       test_past_data, test_future_data, test_data_labels, test_data_weights, batch_size, \
-                                          output_path, final_result_path, dt, beta, learning_rate, seed)
+                                          output_path, final_result_path, dt, beta, beta1, learning_rate, seed)
 
     IB.save_traj_results(traj_data, batch_size, output_path, SaveTrajResults, 0, seed)
     
