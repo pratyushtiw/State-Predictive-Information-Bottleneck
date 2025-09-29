@@ -338,15 +338,15 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         kl_loss/=len(train_past_data)
         mse_loss/=len(train_past_data)
                 
-        final_result += [loss.data.cpu().numpy(), reconstruction_error.cpu().data.numpy(), kl_loss.cpu().data.numpy()]
+        final_result += [loss.data.cpu().numpy(), reconstruction_error.cpu().data.numpy(), kl_loss.cpu().data.numpy(), mse_loss.cpu().data.numpy()]
         print(
             "Final: %d\nLoss (train) %f\tKL loss (train): %f\n"
-                    "Reconstruction loss (train) %f" % (
-                index, loss, kl_loss, reconstruction_error))
+                    "Reconstruction loss (train) %f\tMSE (train) %f" % (
+                index, loss, kl_loss, reconstruction_error, mse_loss))
         print(
             "Final: %d\nLoss (train) %f\tKL loss (train): %f\n"
-                    "Reconstruction loss (train) %f" % (
-                index, loss, kl_loss, reconstruction_error),
+                    "Reconstruction loss (train) %f\tMSE (train) %f" % (
+                index, loss, kl_loss, reconstruction_error, mse_loss),
             file=open(path, 'a'))
     
         loss, reconstruction_error, kl_loss, mse_loss = [0 for i in range(4)]
@@ -370,12 +370,12 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         
         final_result += [loss.cpu().data.numpy(), reconstruction_error.cpu().data.numpy(), kl_loss.cpu().data.numpy(), mse_loss.cpu().data.numpy()]
         print(
-            "Loss (test) %f\tKL loss (train): %f\n"
-            "Reconstruction loss (test) %f"
+            "Loss (test) %f\tKL loss (test): %f\n"
+            "Reconstruction loss (test) %f\tMSE (test) %f"
             % (loss, kl_loss, reconstruction_error, mse_loss))
         print( 
-            "Loss (test) %f\tKL loss (train): %f\n"
-            "Reconstruction loss (test) %f"
+            "Loss (test) %f\tKL loss (test): %f\n"
+            "Reconstruction loss (test) %f\tMSE (test) %f"
             % (loss, kl_loss, reconstruction_error, mse_loss), file=open(path, 'a'))
         
         print("dt: %d\t Beta: %d\t Beta1: %f\t Learning_rate: %f" % (
