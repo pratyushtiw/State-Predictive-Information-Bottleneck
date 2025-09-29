@@ -179,12 +179,12 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
             
                     print(
                         "Iteration %i:\tTime %f s\nLoss (train) %f\tKL loss (train): %f\n"
-                        "Reconstruction loss (train) %f" % (
-                            step, train_time, loss, kl_loss, reconstruction_error))
+                        "Reconstruction loss (train) %f\tMSE (train) %f" % (
+                            step, train_time, loss, kl_loss, reconstruction_error, mse_loss))
                     print(
                        "Iteration %i:\tTime %f s\nLoss (train) %f\tKL loss (train): %f\n"
-                        "Reconstruction loss (train) %f" % (
-                            step, train_time, loss, kl_loss, reconstruction_error), file=open(log_path, 'a'))
+                        "Reconstruction loss (train) %f"\tMSE (train) %f % (
+                            step, train_time, loss, kl_loss, reconstruction_error, mse_loss), file=open(log_path, 'a'))
                     j=i%len(test_permutation)
                     
                     
@@ -200,12 +200,12 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                     train_time = time.time() - start
                     print(
                        "Loss (test) %f\tKL loss (test): %f\n"
-                       "Reconstruction loss (test) %f" % (
-                           loss, kl_loss, reconstruction_error))
+                       "Reconstruction loss (test) %f\tMSE (test) %f" % (
+                           loss, kl_loss, reconstruction_error, mse_loss))
                     print(
                        "Loss (test) %f\tKL loss (test): %f\n"
-                       "Reconstruction loss (test) %f" % (
-                           loss, kl_loss, reconstruction_error), file=open(log_path, 'a'))
+                       "Reconstruction loss (test) %f\tMSE (test) %f" % (
+                           loss, kl_loss, reconstruction_error, mse_loss), file=open(log_path, 'a'))
         
             if step % log_interval == 0:
                 # save model
