@@ -183,7 +183,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                             step, train_time, loss, kl_loss, reconstruction_error, mse_loss))
                     print(
                        "Iteration %i:\tTime %f s\nLoss (train) %f\tKL loss (train): %f\n"
-                        "Reconstruction loss (train) %f"\tMSE (train) %f % (
+                        "Reconstruction loss (train) %f\tMSE (train) %f" % (
                             step, train_time, loss, kl_loss, reconstruction_error, mse_loss), file=open(log_path, 'a'))
                     j=i%len(test_permutation)
                     
