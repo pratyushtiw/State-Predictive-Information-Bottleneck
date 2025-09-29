@@ -73,6 +73,9 @@ def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, bet
         
         # KL Divergence
         kl_loss = torch.mean(log_q-log_p)
+
+        # Unweighted MSE between inputs and future
+        mse_loss = torch.mean((data_inputs - data_future) ** 2)
         
     else:
         # Reconstruction loss is cross-entropy
@@ -81,11 +84,14 @@ def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, bet
         
         # KL Divergence
         kl_loss = torch.mean(data_weights*(log_q-log_p))
+
+        # Weighted MSE between inputs and future (per-sample then weighted)
+        per_sample_mse = ((data_inputs - data_future) ** 2).view(data_inputs.size(0), -1).mean(dim=1)
+        mse_loss = torch.mean(data_weights * per_sample_mse)
         
     
-    loss = reconstruction_error + beta*kl_loss
-
-    return loss, reconstruction_error.float(), kl_loss.float()
+    loss = reconstruction_error + beta * kl_loss + beta1 * mse_loss
+    return loss, reconstruction_error.float(), kl_loss.float(), mse_loss.float()
 
 
 # Train and test model
@@ -150,7 +156,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                        train_data_weights, train_indices, device)
                     
-            loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data, \
+            loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
                                                                 batch_future_labels, batch_weights, beta, beta1)
             
             # Stop if NaN is obtained
@@ -167,7 +173,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                     batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, \
                                                                                train_data_weights, train_indices, device)
                             
-                    loss, reconstruction_error, kl_loss= calculate_loss(IB, batch_inputs, batch_future_data,\
+                    loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data,\
                                                                         batch_future_labels, batch_weights, beta, beta1)
                     train_time = time.time() - start
             
@@ -188,7 +194,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                     batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, \
                                                                                test_data_weights, test_indices, device)
                     
-                    loss, reconstruction_error, kl_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
+                    loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
                                                                          batch_future_labels, batch_weights, beta, beta1)
 
                     train_time = time.time() - start
@@ -313,22 +319,24 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
         final_result = []
         # output the result
         
-        loss, reconstruction_error, kl_loss= [0 for i in range(3)]
+        loss, reconstruction_error, kl_loss, mse_loss = [0 for i in range(4)]
         
         for i in range(0, len(train_past_data), batch_size):
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
-            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
+            loss1, reconstruction_error1, kl_loss1, mse_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
                                                                     batch_weights, beta, beta1)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
+            mse_loss += mse_loss1*len(batch_inputs)
             
         
         # output the result
         loss/=len(train_past_data)
         reconstruction_error/=len(train_past_data)
         kl_loss/=len(train_past_data)
+        mse_loss/=len(train_past_data)
                 
         final_result += [loss.data.cpu().numpy(), reconstruction_error.cpu().data.numpy(), kl_loss.cpu().data.numpy()]
         print(
@@ -341,22 +349,24 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
                 index, loss, kl_loss, reconstruction_error),
             file=open(path, 'a'))
     
-        loss, reconstruction_error, kl_loss = [0 for i in range(3)]
+        loss, reconstruction_error, kl_loss, mse_loss = [0 for i in range(4)]
         
         for i in range(0, len(test_past_data), batch_size):
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, test_data_weights, \
                                                                                          range(i,min(i+batch_size,len(test_past_data))), IB.device)
-            loss1, reconstruction_error1, kl_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
+            loss1, reconstruction_error1, kl_loss1, mse_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
                                                                    batch_weights, beta, beta1)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
+            mse_loss += mse_loss1*len(batch_inputs)
             
         
         # output the result
         loss/=len(test_past_data)
         reconstruction_error/=len(test_past_data)
         kl_loss/=len(test_past_data)
+        mse_loss/=len(test_past_data)
         
         final_result += [loss.cpu().data.numpy(), reconstruction_error.cpu().data.numpy(), kl_loss.cpu().data.numpy()]
         print(
