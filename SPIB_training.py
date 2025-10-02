@@ -61,6 +61,8 @@ def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, bet
     
     # pass through VAE
     outputs, z_sample, z_mean, z_logvar = IB.forward(data_inputs)
+    future_pred = IB.decode_future(z_mean)           # shape: (B, prod(data_shape))
+    target_future = data_future.view(future_pred.size(0), -1) 
     
     # KL Divergence
     log_p = IB.log_p(z_sample)
@@ -74,8 +76,9 @@ def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, bet
         # KL Divergence
         kl_loss = torch.mean(log_q-log_p)
 
-        # Unweighted MSE between inputs and future
-        mse_loss = torch.mean((data_inputs - data_future) ** 2)
+        # average per feature then average over batch 
+        per_sample_mse = torch.mean((future_pred - target_future) ** 2, dim=1)
+        mse_loss = torch.mean(per_sample_mse)
         
     else:
         # Reconstruction loss is cross-entropy
@@ -86,7 +89,7 @@ def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, bet
         kl_loss = torch.mean(data_weights*(log_q-log_p))
 
         # Weighted MSE between inputs and future (per-sample then weighted)
-        per_sample_mse = ((data_inputs - data_future) ** 2).view(data_inputs.size(0), -1).mean(dim=1)
+        per_sample_mse = torch.mean((future_pred - target_future) ** 2, dim=1)
         mse_loss = torch.mean(data_weights * per_sample_mse)
         
     
