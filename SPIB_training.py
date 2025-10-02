@@ -385,5 +385,25 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
               file=open(path, 'a'))    
         
         
+        # Save future-data reconstructions for train/test (no training changes)
+        with torch.no_grad():
+            # --- Train recon ---
+            train_recon = []
+            for i in range(0, len(train_past_data), batch_size):
+                batch = train_past_data[i:i+batch_size].to(device)
+                z_mean, z_logvar = IB.encode(batch.view(batch.size(0), -1))
+                train_recon += [IB.decode_future(z_mean, reshape=False).cpu()]
+            train_recon = torch.cat(train_recon, dim=0).numpy()
+            np.save(output_path + "_train_future_recon" + str(index) + ".npy", train_recon)
+
+            # --- Test recon ---
+            test_recon = []
+            for i in range(0, len(test_past_data), batch_size):
+                batch = test_past_data[i:i+batch_size].to(device)
+                z_mean, z_logvar = IB.encode(batch.view(batch.size(0), -1))
+                test_recon += [IB.decode_future(z_mean, reshape=False).cpu()]
+            test_recon = torch.cat(test_recon, dim=0).numpy()
+            np.save(output_path + "_test_future_recon" + str(index) + ".npy", test_recon)
+
         final_result = np.array(final_result)
         np.save(final_result_path, final_result)

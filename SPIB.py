@@ -72,6 +72,14 @@ class SPIB(nn.Module):
             nn.Sigmoid())
         
         self.decoder = self._decoder_init()
+
+        self.future_decoder = torch.nn.Sequential(
+            nn.Linear(self.z_dim, self.neuron_num2),
+            nn.ReLU(),
+            nn.Linear(self.neuron_num2, int(np.prod(self.data_shape))),
+            nn.Tanh()
+        )
+
         
     def _encoder_init(self):
         
@@ -128,6 +136,27 @@ class SPIB(nn.Module):
         outputs = self.decoder(z_sample)
         
         return outputs, z_sample, z_mean, z_logvar
+
+    def decode_future(self, z, reshape=False):
+        """
+        Decode the same latent z to reconstruct future features x_{t+dt}.
+        Returns (B, prod(data_shape)) unless reshape=True -> (B, *data_shape).
+        """
+        y = self.future_decoder(z)
+        if reshape:
+            y = y.view(-1, *self.data_shape)
+        return y
+
+    def forward_with_future(self, data, use_mean=True, reshape=False):
+        """
+        Wrapper that returns the standard outputs PLUS future-data reconstruction.
+        Does not change existing forward(...) usage anywhere else.
+        """
+        outputs, z_sample, z_mean, z_logvar = self.forward(data)
+        z = z_mean if use_mean else z_sample
+        future_pred = self.decode_future(z, reshape=reshape)
+        return outputs, z_sample, z_mean, z_logvar, future_pred
+    
     
     def log_p (self, z, sum_up=True):
         # get representative_z - representative_dim * z_dim
@@ -287,6 +316,8 @@ class SPIB(nn.Module):
         all_prediction=[] 
         all_z_sample=[] 
         all_z_mean=[] 
+        all_future_pred = []
+
         
         for i in range(0, len(inputs), batch_size):
             
@@ -297,14 +328,20 @@ class SPIB(nn.Module):
             z_sample = self.reparameterize(z_mean, z_logvar)
         
             log_prediction = self.decoder(z_mean)
+            future_pred = self.future_decoder(z_mean)
+
             
             all_prediction+=[log_prediction.exp().cpu()]
             all_z_sample+=[z_sample.cpu()]
             all_z_mean+=[z_mean.cpu()]
+            all_future_pred += [future_pred.cpu()]
+
             
         all_prediction = torch.cat(all_prediction, dim=0)
         all_z_sample = torch.cat(all_z_sample, dim=0)
         all_z_mean = torch.cat(all_z_mean, dim=0)
+        all_future_pred = torch.cat(all_future_pred, dim=0)
+
         
         max_pos = all_prediction.argmax(1)
         labels = F.one_hot(max_pos, num_classes=self.output_dim)
@@ -344,6 +381,10 @@ class SPIB(nn.Module):
             np.save(prediction_path, all_prediction.cpu().data.numpy())
             np.save(representation_path, all_z_sample.cpu().data.numpy())
             np.save(mean_representation_path, all_z_mean.cpu().data.numpy())
+
+            future_recon_path = path + '_traj%d_future_recon'%(traj_index) + str(index) + '.npy'
+            np.save(future_recon_path, all_future_pred.cpu().data.numpy())
+
             
             
 
