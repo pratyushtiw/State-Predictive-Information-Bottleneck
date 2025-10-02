@@ -329,7 +329,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1, mse_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
                                                                     batch_weights, beta, beta1)
-            loss += loss1*len(batch_inputs)
+            loss += loss1*len(batch_inputs) #
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
             mse_loss += mse_loss1*len(batch_inputs)
