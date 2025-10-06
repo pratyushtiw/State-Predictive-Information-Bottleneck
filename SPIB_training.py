@@ -126,31 +126,40 @@ def set_requires_grad(module, flag: bool):
 ##
 def fine_tune_future_decoder(
     IB,
-    train_past_data, train_future_data, train_data_weights,
+    train_past_data, train_future_data, train_data_weights=None,
     batch_size=512, lr=1e-3, epochs=5,
-    patience=None, threshold=None,
-    device="cpu", log_interval=200
+    patience=None, threshold=None,          # set both to None to disable early-stop
+    device="cpu", log_interval=200, log_path=None
 ):
     """
-    Train ONLY the future_decoder to reconstruct future_data from z_mean.
-    Encoder/logvar/classifier decoder remain frozen and are not updated.
+    Phase 2: update ONLY IB.future_decoder to reconstruct x_{t+dt} from z_mean.
+    Loss = MSE(future_decoder(z_mean), future_data).
+    Encoder/logvar/IB classifier are frozen; z_mean is computed under no_grad.
     """
-    # 1) Freeze everything except the future decoder
+    # --- freeze everything but future_decoder
     set_requires_grad(getattr(IB, "encoder", None), False)
     set_requires_grad(getattr(IB, "encoder_logvar", None), False)
     set_requires_grad(getattr(IB, "decoder", None), False)
     set_requires_grad(getattr(IB, "representative_weights", None), False)
     set_requires_grad(getattr(IB, "future_decoder", None), True)
 
-    # 2) Optimizer for ONLY future_decoder parameters
+    # --- optimizer over future_decoder ONLY
     fd = getattr(IB, "future_decoder", None)
-    assert fd is not None, "IB.future_decoder not found — add it in SPIB.py first."
+    assert fd is not None, "IB.future_decoder not found."
     optimizer = torch.optim.Adam(fd.parameters(), lr=lr)
+
+    # optional: quick sanity print of trainable parameter names
+    try:
+        trainable = [n for n, p in IB.named_parameters() if p.requires_grad]
+        msg = f"[FD] trainable params: {trainable}"
+        print(msg)
+        if log_path: print(msg, file=open(log_path, 'a'))
+    except Exception:
+        pass
 
     N = len(train_past_data)
     num_steps = (N + batch_size - 1) // batch_size
-    best = float("inf")
-    bad = 0
+    best = float("inf"); bad = 0
 
     IB.train()
     for epoch in range(epochs):
@@ -162,29 +171,41 @@ def fine_tune_future_decoder(
             idx = perm[s*batch_size : (s+1)*batch_size]
             batch_inputs  = train_past_data[idx].to(device)
             batch_future  = train_future_data[idx].to(device)
-            batch_weights = None if train_data_weights is None else train_data_weights[idx].to(device)
+            if train_data_weights is None:
+                batch_weights = None
+            else:
+                batch_weights = train_data_weights[idx].to(device)
 
-            # 3) Get z_mean WITHOUT building grads through encoder/etc.
+            # get z_mean WITHOUT building a graph through encoder
             with torch.no_grad():
-                # Prefer an encode() if you have it; else use forward(...) to pull z_mean
-                try:
+                # prefer encode() if available; else fall back to forward(...)
+                if hasattr(IB, "encode"):
                     z_mean, z_logvar = IB.encode(batch_inputs.view(batch_inputs.size(0), -1))
-                except:
-                    outputs, z_sample, z_mean, z_logvar = IB.forward(batch_inputs)
+                else:
+                    out = IB.forward(batch_inputs)
+                    # expected tuple: (outputs, z_sample, z_mean, z_logvar, ...)
+                    z_mean = out[2]
 
-            # 4) Train future_decoder on MSE to future data
-            future_pred = IB.future_decoder(z_mean)               # (B, prod(data_shape))
+            # future prediction from z_mean (decoder head is trainable)
+            if hasattr(IB, "decode_future"):
+                future_pred = IB.decode_future(z_mean)        # (B, prod(data_shape))
+            else:
+                future_pred = IB.future_decoder(z_mean)
+
             target = batch_future.view(future_pred.size(0), -1)
 
+            # per-sample MSE over features
             per_sample = torch.mean((future_pred - target) ** 2, dim=1)
+
             if batch_weights is None:
                 loss = torch.mean(per_sample)
                 sum_loss += per_sample.detach().sum().item()
                 denom += per_sample.numel()
             else:
-                wsum = torch.sum(batch_weights).item() + 1e-12
-                loss = torch.sum(batch_weights * per_sample) / wsum
-                sum_loss += (batch_weights * per_sample).detach().sum().item()
+                w = batch_weights.view(-1)
+                wsum = torch.sum(w).item() + 1e-12
+                loss = torch.sum(w * per_sample) / wsum
+                sum_loss += (w * per_sample).detach().sum().item()
                 denom += wsum
 
             optimizer.zero_grad()
@@ -192,20 +213,25 @@ def fine_tune_future_decoder(
             optimizer.step()
 
             if (s % log_interval) == 0:
-                print(f"[FD] epoch {epoch} step {s}/{num_steps}  mse={loss.item():.6f}")
+                msg = f"[FD] epoch {epoch} step {s}/{num_steps}  mse={loss.item():.6f}"
+                print(msg)
+                if log_path: print(msg, file=open(log_path, 'a'))
 
         avg_mse = sum_loss / max(denom, 1e-12)
-        print(f"[FD] epoch {epoch} avg MSE: {avg_mse:.6f}")
+        msg = f"[FD] epoch {epoch} avg MSE: {avg_mse:.6f}"
+        print(msg)
+        if log_path: print(msg, file=open(log_path, 'a'))
 
-        # 5) Optional early stop on MSE improvement
+        # optional early stop on improvement
         if patience is not None and threshold is not None:
             if (best - avg_mse) > threshold:
-                best = avg_mse
-                bad = 0
+                best = avg_mse; bad = 0
             else:
                 bad += 1
                 if bad >= patience:
-                    print(f"[FD] early stop: no improvement > {threshold} for {patience} epochs")
+                    msg = f"[FD] early stop: no improvement > {threshold} for {patience} epochs"
+                    print(msg)
+                    if log_path: print(msg, file=open(log_path, 'a'))
                     break
 
 
@@ -398,7 +424,8 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
         patience=2, 
         threshold=None,  # optional; set None to disable
         device=device,
-        log_interval=log_interval
+        log_interval=log_interval,
+        log_path=log_path
         )
 # output the saving path
     total_training_time = time.time() - start
