@@ -54,10 +54,11 @@ def data_init(t0, dt, traj_data, traj_label, traj_weights):
     return data_shape, past_data_train, future_data_train, label_train, weights_train,\
         past_data_test, future_data_test, label_test, weights_test
 
+
 # Loss function
 # ------------------------------------------------------------------------------
 
-def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, beta=1.0, beta1 = 1.0):
+def calculate_loss(IB, data_inputs, data_future, data_targets, data_weights, beta=1.0, beta1 = 0.0):
     
     # pass through VAE
     outputs, z_sample, z_mean, z_logvar = IB.forward(data_inputs)
@@ -114,6 +115,99 @@ def sample_minibatch(past_data, future_data, data_labels, data_weights, indices,
     
     return sample_past_data, sample_future_data, sample_data_labels, sample_data_weights
 
+def set_requires_grad(module, flag: bool):
+    if module is None:
+        return
+    for p in module.parameters():
+        p.requires_grad = flag
+
+##
+#training only future decoder - mse loss
+##
+def fine_tune_future_decoder(
+    IB,
+    train_past_data, train_future_data, train_data_weights,
+    batch_size=512, lr=1e-3, epochs=5,
+    patience=None, threshold=None,
+    device="cpu", log_interval=200
+):
+    """
+    Train ONLY the future_decoder to reconstruct future_data from z_mean.
+    Encoder/logvar/classifier decoder remain frozen and are not updated.
+    """
+    # 1) Freeze everything except the future decoder
+    set_requires_grad(getattr(IB, "encoder", None), False)
+    set_requires_grad(getattr(IB, "encoder_logvar", None), False)
+    set_requires_grad(getattr(IB, "decoder", None), False)
+    set_requires_grad(getattr(IB, "representative_weights", None), False)
+    set_requires_grad(getattr(IB, "future_decoder", None), True)
+
+    # 2) Optimizer for ONLY future_decoder parameters
+    fd = getattr(IB, "future_decoder", None)
+    assert fd is not None, "IB.future_decoder not found — add it in SPIB.py first."
+    optimizer = torch.optim.Adam(fd.parameters(), lr=lr)
+
+    N = len(train_past_data)
+    num_steps = (N + batch_size - 1) // batch_size
+    best = float("inf")
+    bad = 0
+
+    IB.train()
+    for epoch in range(epochs):
+        perm = torch.randperm(N)
+        sum_loss = 0.0
+        denom = 0.0
+
+        for s in range(num_steps):
+            idx = perm[s*batch_size : (s+1)*batch_size]
+            batch_inputs  = train_past_data[idx].to(device)
+            batch_future  = train_future_data[idx].to(device)
+            batch_weights = None if train_data_weights is None else train_data_weights[idx].to(device)
+
+            # 3) Get z_mean WITHOUT building grads through encoder/etc.
+            with torch.no_grad():
+                # Prefer an encode() if you have it; else use forward(...) to pull z_mean
+                try:
+                    z_mean, z_logvar = IB.encode(batch_inputs.view(batch_inputs.size(0), -1))
+                except:
+                    outputs, z_sample, z_mean, z_logvar = IB.forward(batch_inputs)
+
+            # 4) Train future_decoder on MSE to future data
+            future_pred = IB.future_decoder(z_mean)               # (B, prod(data_shape))
+            target = batch_future.view(future_pred.size(0), -1)
+
+            per_sample = torch.mean((future_pred - target) ** 2, dim=1)
+            if batch_weights is None:
+                loss = torch.mean(per_sample)
+                sum_loss += per_sample.detach().sum().item()
+                denom += per_sample.numel()
+            else:
+                wsum = torch.sum(batch_weights).item() + 1e-12
+                loss = torch.sum(batch_weights * per_sample) / wsum
+                sum_loss += (batch_weights * per_sample).detach().sum().item()
+                denom += wsum
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if (s % log_interval) == 0:
+                print(f"[FD] epoch {epoch} step {s}/{num_steps}  mse={loss.item():.6f}")
+
+        avg_mse = sum_loss / max(denom, 1e-12)
+        print(f"[FD] epoch {epoch} avg MSE: {avg_mse:.6f}")
+
+        # 5) Optional early stop on MSE improvement
+        if patience is not None and threshold is not None:
+            if (best - avg_mse) > threshold:
+                best = avg_mse
+                bad = 0
+            else:
+                bad += 1
+                if bad >= patience:
+                    print(f"[FD] early stop: no improvement > {threshold} for {patience} epochs")
+                    break
+
 
 def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_labels, train_data_weights, \
           test_past_data, test_future_data, init_test_data_labels, test_data_weights, \
@@ -138,7 +232,15 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
     state_population0 = torch.sum(train_data_labels,dim=0).float()/train_data_labels.shape[0]
 
     # generate the optimizer and scheduler
-    optimizer = torch.optim.Adam(IB.parameters(), lr=learning_rate)
+    # --- Phase 1: IB-only training; do NOT update future_decoder ---
+    set_requires_grad(getattr(IB, "future_decoder", None), False)
+
+    # Build optimizer from only trainable (requires_grad=True) params
+    optimizer = torch.optim.Adam(
+        [p for p in IB.parameters() if p.requires_grad],
+        lr=learning_rate
+    )
+
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=lr_scheduler_step_size, gamma=lr_scheduler_gamma)
 
@@ -160,7 +262,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                                                                        train_data_weights, train_indices, device)
                     
             loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
-                                                                batch_future_labels, batch_weights, beta, beta1)
+                                                                batch_future_labels, batch_weights, beta, beta1=0.0)
             
             # Stop if NaN is obtained
             if(torch.isnan(loss).any()):
@@ -177,7 +279,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                                                                                train_data_weights, train_indices, device)
                             
                     loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data,\
-                                                                        batch_future_labels, batch_weights, beta, beta1)
+                                                                        batch_future_labels, batch_weights, beta, beta1=0.0)
                     train_time = time.time() - start
             
                     print(
@@ -198,7 +300,7 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
                                                                                test_data_weights, test_indices, device)
                     
                     loss, reconstruction_error, kl_loss, mse_loss = calculate_loss(IB, batch_inputs, batch_future_data, \
-                                                                         batch_future_labels, batch_weights, beta, beta1)
+                                                                         batch_future_labels, batch_weights, beta, beta1=0.0)
 
                     train_time = time.time() - start
                     print(
@@ -286,7 +388,19 @@ def train(IB, beta, beta1, train_past_data, train_future_data, init_train_data_l
         print("Epoch: %d\n"%(epoch))
         print("Epoch: %d\n"%(epoch), file=open(log_path, 'a'))
 
-    # output the saving path
+    # --- Phase 2: fine-tune future decoder ONLY ---
+    fine_tune_future_decoder(
+        IB,
+        train_past_data, train_future_data, train_data_weights,
+        batch_size=batch_size,
+        lr=learning_rate,            # or a separate fd_lr if you prefer
+        epochs=5,                    # tune as needed
+        patience=2, 
+        threshold=None,  # optional; set None to disable
+        device=device,
+        log_interval=log_interval
+        )
+# output the saving path
     total_training_time = time.time() - start
     print("Total training time: %f" % total_training_time)
     print("Total training time: %f" % total_training_time, file=open(log_path, 'a'))
@@ -328,8 +442,8 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(train_past_data, train_future_data, train_data_labels, train_data_weights, \
                                                                        range(i,min(i+batch_size,len(train_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1, mse_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
-                                                                    batch_weights, beta, beta1)
-            loss += loss1*len(batch_inputs) #
+                                                                    batch_weights, beta, beta1=0.0)
+            loss += loss1*len(batch_inputs) 
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
             mse_loss += mse_loss1*len(batch_inputs)
@@ -358,7 +472,7 @@ def output_final_result(IB, device, train_past_data, train_future_data, train_da
             batch_inputs, batch_future_data, batch_future_labels, batch_weights = sample_minibatch(test_past_data, test_future_data, test_data_labels, test_data_weights, \
                                                                                          range(i,min(i+batch_size,len(test_past_data))), IB.device)
             loss1, reconstruction_error1, kl_loss1, mse_loss1 = calculate_loss(IB, batch_inputs, batch_future_data, batch_future_labels, \
-                                                                   batch_weights, beta, beta1)
+                                                                   batch_weights, beta, beta1=0.0)
             loss += loss1*len(batch_inputs)
             reconstruction_error += reconstruction_error1*len(batch_inputs)
             kl_loss += kl_loss1*len(batch_inputs)
